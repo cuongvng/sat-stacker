@@ -7,6 +7,9 @@ from dotenv import load_dotenv
 import os
 load_dotenv()
 
+BTC_USD = "BTC/USD"	
+AMOUNT_USD = 10.0
+
 class FtxClient:
 	def __init__(
 		self,
@@ -82,14 +85,6 @@ class FtxClient:
 		return self._get('account')
 
 	@authentication_required
-	def get_open_orders(self, market: Optional[str] = None) -> List[dict]:
-		return self._get('orders', {'market': market})
-
-	@authentication_required
-	def get_order_status(self, existing_order_id: int) -> dict:
-		return self._get(f'orders/{existing_order_id}')
-
-	@authentication_required
 	def get_order_history(self,
 						  market: Optional[str] = None,
 						  side: Optional[str] = None,
@@ -105,9 +100,12 @@ class FtxClient:
 				'end_time': end_time
 			})
 
+	def get_market(self, market: str) -> dict:
+		return self._get(f'markets/{market}')
+
 	@authentication_required
 	def stack_sats(self,
-					market: str = "BTC/USD",
+					market: str = BTC_USD,
 					side: str = "buy",
 					size: float = 0.0001,
 					price: Optional[float] = None,
@@ -133,8 +131,13 @@ class FtxClient:
 
 if __name__ == "__main__":
 	client = FtxClient()
+	prices = client.get_market(BTC_USD)
+	ask_price = prices["ask"]
+	order_size = float(f"{AMOUNT_USD/ask_price:.5f}")
+	
 	try:
-		result = client.stack_sats()
+		result = client.stack_sats(size=order_size)
+		print(f"STACKED {order_size} SATs for {ask_price*order_size} USD!")
 		print(result)
 	except Exception as ex:
 		print("ERROR:", ex)
