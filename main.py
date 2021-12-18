@@ -1,88 +1,142 @@
+import hmac
+import time
+import urllib.parse
+from typing import Optional, Dict, Any, List
+from requests import Request, Session, Response
 from dotenv import load_dotenv
 import os
 load_dotenv()
 
-import requests 
-import time
-import hmac
-import json
+class FtxClient:
+	def __init__(
+		self,
+		base_url: str = "https://ftx.com/api/",
+		api_key: Optional[str] = os.getenv("SAT_STACKER_API_KEY"),
+		api_secret: Optional[str] = os.getenv("SAT_STACKER_API_SECRET"),
+		subaccount_name: Optional[str] = os.getenv("SUB_ACCOUNT"),
+	) -> None:
+		self._session = Session()
+		self._base_url = base_url
+		self._api_key = api_key
+		self._api_secret = api_secret
+		self._subaccount_name = subaccount_name
 
-SAT_STACKER_API_KEY = os.getenv("SAT_STACKER_API_KEY")
-SAT_STACKER_API_SECRET = os.getenv("SAT_STACKER_API_SECRET")
-BASE_ENDPOINT = "https://ftx.com/api"
-SUB_ACCOUNT = os.getenv("SUB_ACCOUNT")
-EMAIL = os.getenv("EMAIL")
+	def _get(self, path: str, params: Optional[Dict[str, Any]] = None) -> Any:
+		return self._request('GET', path, params=params)
 
-def authenticate(method, end_point_path, payload=None):
-	ts = int(time.time() * 1000)
-	signature_payload = f'{ts}{method}/api{end_point_path}'.encode()
-	if payload:
-		signature_payload = f'{ts}{method}/api{end_point_path}{payload}'.encode()
+	def _post(self, path: str, params: Optional[Dict[str, Any]] = None) -> Any:
+		return self._request('POST', path, json=params)
 
-	signature = hmac.new(SAT_STACKER_API_SECRET.encode(), signature_payload, 'sha256').hexdigest()
-	return ts, signature
+	def _request(self, method: str, path: str, **kwargs) -> Any:
+		request = Request(method, self._base_url + path, **kwargs)
+		if self._api_key:
+			self._sign_request(request)
+		response = self._session.send(request.prepare())
 
-def get_account_info():
-	# Authenticate
-	METHOD = "GET"
-	END_POINT_PATH = "/account"
-	ts, signature = authenticate(METHOD, END_POINT_PATH)
+		return self._process_response(response)
 
-	# Request
-	headers = {}
-	headers['FTX-KEY'] = SAT_STACKER_API_KEY
-	headers['FTX-SIGN'] = signature
-	headers['FTX-TS'] = str(ts)
-	headers['FTX-SUBACCOUNT'] = SUB_ACCOUNT
+	def _sign_request(self, request: Request) -> None:
+		ts = int(time.time() * 1000)
+		prepared = request.prepare()
+		signature_payload = f'{ts}{prepared.method}{prepared.path_url}'.encode(
+		)
+		if prepared.body:
+			signature_payload += prepared.body
+		signature = hmac.new(self._api_secret.encode(), signature_payload,
+							 'sha256').hexdigest()
+		request.headers['FTX-KEY'] = self._api_key
+		request.headers['FTX-SIGN'] = signature
+		request.headers['FTX-TS'] = str(ts)
+		if self._subaccount_name:
+			request.headers['FTX-SUBACCOUNT'] = urllib.parse.quote(
+				self._subaccount_name)
 
-	response = requests.get(BASE_ENDPOINT+END_POINT_PATH, headers=headers)
-	
-	if response.status_code == 200:
-		print(response.json()["result"])
-	else:
-		print("Error:", response.json()["error"])
-	
-def stack_sats():
-	"""
-	POST signature example (from https://blog.ftx.com/blog/api-authentication/):
+	@staticmethod
+	def _process_response(response: Response) -> Any:
+		try:
+			data = response.json()
+		except ValueError:
+			response.raise_for_status()
+			raise
+		else:
+			if not data['success']:
+				raise Exception(data['error'])
+			return data['result']
 
-	signature_payload = b'1588591856950POST/api/orders{"market": "BTC-PERP", "side": "buy", "price": 8500, "size": 1, "type": "limit", "reduceOnly": false, "ioc": false, "postOnly": false, "clientId": null}'
-	"""
+	#
+	# Authentication required methods
+	#
+	def authentication_required(fn):
+		"""Annotation for methods that require auth."""
 
-	# Place a spot market order
-	MIN_ORDER_SIZE = 0.0001
-	payload = json.dumps({
-		"market": "BTC/USD",
-		"side": "buy",
-		"price": None,
-		"size": MIN_ORDER_SIZE,
-		"type": "market",
-		"reduceOnly": False,
-		"ioc": False,
-		"postOnly": False,
-		"clientId": None
-	})
-	# Authenticate
-	METHOD = "POST"
-	END_POINT_PATH = "/orders"
-	ts, signature = authenticate(METHOD, END_POINT_PATH, payload)
+		def wrapped(self, *args, **kwargs):
+			if not self._api_key:
+				raise TypeError("You must be authenticated to use this method")
+			else:
+				return fn(self, *args, **kwargs)
 
-	# Request
-	headers = {
-		'FTX-KEY': SAT_STACKER_API_KEY,
-		'FTX-SIGN': signature,
-		'FTX-TS': str(ts),
-		'FTX-SUBACCOUNT': SUB_ACCOUNT
-	}
+		return wrapped
 
-	response = requests.post(BASE_ENDPOINT+END_POINT_PATH, data=payload, headers=headers)
-	if response.status_code == 200:
-		print(response.json()["result"])
-	else:
-		# Send me an email
-		print("Error:", response.json()["error"])
-		print(response.json())
+	@authentication_required
+	def get_account_info(self) -> dict:
+		return self._get('account')
+
+	@authentication_required
+	def get_open_orders(self, market: Optional[str] = None) -> List[dict]:
+		return self._get('orders', {'market': market})
+
+	@authentication_required
+	def get_order_status(self, existing_order_id: int) -> dict:
+		return self._get(f'orders/{existing_order_id}')
+
+	@authentication_required
+	def get_order_history(self,
+						  market: Optional[str] = None,
+						  side: Optional[str] = None,
+						  order_type: Optional[str] = None,
+						  start_time: Optional[float] = None,
+						  end_time: Optional[float] = None) -> List[dict]:
+		return self._get(
+			'orders/history', {
+				'market': market,
+				'side': side,
+				'orderType': order_type,
+				'start_time': start_time,
+				'end_time': end_time
+			})
+
+	@authentication_required
+	def stack_sats(self,
+					market: str = "BTC/USD",
+					side: str = "buy",
+					size: float = 0.0001,
+					price: Optional[float] = None,
+					type: str = 'market',
+					reduce_only: bool = False,
+					ioc: bool = False,
+					post_only: bool = False,
+					client_id: Optional[str] = None,
+					reject_on_price_band: Optional[bool] = False) -> dict:
+		return self._post(
+			'orders', {
+				'market': market,
+				'side': side,
+				'price': price,
+				'size': size,
+				'type': type,
+				'reduceOnly': reduce_only,
+				'ioc': ioc,
+				'postOnly': post_only,
+				'clientId': client_id,
+				'rejectOnPriceBand': reject_on_price_band
+			})
 
 if __name__ == "__main__":
-	# get_account_info()
-	stack_sats()
+	client = FtxClient()
+	try:
+		result = client.stack_sats()
+		print(result)
+	except Exception as ex:
+		print("ERROR:", ex)
+
+	
