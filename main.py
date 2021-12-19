@@ -1,3 +1,4 @@
+from __future__ import print_function
 import hmac
 import time
 import urllib.parse
@@ -129,6 +130,25 @@ class FtxClient:
 				'rejectOnPriceBand': reject_on_price_band
 			})
 
+def notify_me(message, info):
+	import smtplib
+	from email.message import EmailMessage
+
+	sender = os.getenv("SENDER")
+	receiver = os.getenv("EMAIL")
+	password = os.getenv("SENDER_PASSWORD")
+
+	msg = EmailMessage()
+	msg['subject'] = "Sat-Stacker" + info
+	msg['from'] = sender
+	msg['to'] = receiver
+	msg.set_content(message)
+
+	with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+		smtp.login(sender, password)
+		smtp.send_message(msg)
+		print("Email Sent!")
+
 if __name__ == "__main__":
 	client = FtxClient()
 	prices = client.get_market(BTC_USD)
@@ -137,9 +157,12 @@ if __name__ == "__main__":
 	
 	try:
 		result = client.stack_sats(size=order_size)
-		print(f"STACKED {order_size} SATs for {ask_price*order_size} USD!")
+
+		info = f"Stacked {order_size} BTCs = {int(order_size*10**8)} SATs for {ask_price*order_size} USD!"
+		print(info)
 		print(result)
+		# notify_me(info, " ORDER CONFIRMATION")
+	
 	except Exception as ex:
 		print("ERROR:", ex)
-
-	
+		notify_me(str(ex), " ERROR!!!")
