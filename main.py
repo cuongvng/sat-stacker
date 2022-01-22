@@ -9,8 +9,6 @@ import os
 load_dotenv()
 
 BTC_USD = "BTC/USD"	
-AMOUNT_USD = 10.0
-
 class FtxClient:
 	def __init__(
 		self,
@@ -153,12 +151,15 @@ if __name__ == "__main__":
 	client = FtxClient()
 	prices = client.get_market(BTC_USD)
 	ask_price = prices["ask"]
-	order_size = float(f"{AMOUNT_USD/ask_price:.5f}")
-	
+	if ask_price < 35000.0:
+		order_size = 0.0003
+	else:
+		order_size = 0.0002
+
 	try:
 		result = client.stack_sats(size=order_size)
 
-		info = f"Stacked {order_size} BTCs = {int(order_size*10**8)} SATs for {ask_price*order_size} USD!"
+		info = f"Stacked {order_size} BTCs = {int(order_size*10**8)} SATs for {ask_price*order_size:2f} USD, at price ~ {ask_price:.0f}!"
 		print(info)
 		print(result)
 		# notify_me(info, " ORDER CONFIRMATION")
