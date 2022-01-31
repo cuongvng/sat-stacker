@@ -163,6 +163,7 @@ if __name__ == "__main__":
 		filledSize = result["filledSize"]
 		avgFillPrice = result["avgFillPrice"]
 		info = f"Stacked {filledSize} BTCs = {int(filledSize*10**8)} SATs for {avgFillPrice*filledSize:2f} USD, at price {avgFillPrice:.0f}!"
+		print("\n")
 		print(info)
 		# notify_me(info, " ORDER CONFIRMATION")
 	
