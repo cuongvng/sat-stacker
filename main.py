@@ -127,6 +127,8 @@ class FtxClient:
 				'clientId': client_id,
 				'rejectOnPriceBand': reject_on_price_band
 			})
+		# Wait a second for order to be filled
+		time.sleep(1)
 		return self._get(f"orders/{order['id']}")
 
 def notify_me(message, info):
@@ -159,12 +161,12 @@ if __name__ == "__main__":
 
 	try:
 		result = client.stack_sats(size=order_size)
-		print(result)
+		
 		filledSize = result["filledSize"]
 		avgFillPrice = result["avgFillPrice"]
 		info = f"Stacked {filledSize} BTCs = {int(filledSize*10**8)} SATs for {avgFillPrice*filledSize:2f} USD, at price {avgFillPrice:.0f}!"
-		print("\n")
 		print(info)
+		print(result)
 		# notify_me(info, " ORDER CONFIRMATION")
 	
 	except Exception as ex:
